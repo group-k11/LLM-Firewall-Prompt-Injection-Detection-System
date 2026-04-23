@@ -135,7 +135,9 @@ Open [http://localhost:3000](http://localhost:3000) in your browser. Use the pro
 
 ## 👨‍💻 Contributors
 
+* Siddesh Shirote
 * Satyam Shrivastav
+* Sujit Patel
 * Team Members (Group 11)
 
 ## 📜 License
