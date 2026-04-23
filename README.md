@@ -34,7 +34,7 @@ To prove the firewall's efficacy, the dashboard includes a side-by-side **Demo M
 * **Right Panel (With Firewall):** Shows the firewall intercepting the attack, displaying the security value (e.g., "Attack Blocked") and preventing the LLM from executing malicious instructions.
 
 ### 4. Dynamic LLM Routing
-* Integrates directly with the **Groq API** for ultra-fast Llama-3 inference on safe prompts.
+* Integrates directly with the **Openrouter API** for ultra-fast gpt-oss-120b inference on safe prompts.
 * Automatic fallback to a local **Ollama** instance if the primary cloud provider experiences an outage or timeout.
 * *Dashboard UI:* The top-right header displays a live indicator of the active LLM provider and model.
 
@@ -69,7 +69,7 @@ User Input
             "Prompt Blocked"                                      LLM Connector
                                                                        │
                                                       ┌────────────────┴────────────────┐
-                                                [ Groq API ]                      [ Ollama ]
+                                                [ Openrouter API ]                      [ Ollama ]
                                               (Primary Cloud)                  (Local Fallback)
 ```
 
