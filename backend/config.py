@@ -8,9 +8,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Groq
-GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+# OpenRouter
+OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 
 # Ollama
 OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://localhost:11434")

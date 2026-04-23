@@ -1,44 +1,45 @@
 """
 LLM Connector
-Provides GroqLLMConnector, OllamaLLMConnector and a unified call_llm() function.
+Provides OpenRouterLLMConnector, OllamaLLMConnector and a unified call_llm() function.
 
-Fallback chain: Groq → Ollama → error
+Fallback chain: OpenRouter → Ollama → error
 Timeout: 10 seconds (configurable via config.py)
 """
 
 import time
-import asyncio
 import httpx
 
 from config import (
-    GROQ_API_KEY, GROQ_MODEL,
+    OPENROUTER_API_KEY, OPENROUTER_MODEL,
     OLLAMA_URL, OLLAMA_MODEL,
     LLM_TIMEOUT, SYSTEM_PROMPT,
 )
 
 
 # ---------------------------------------------------------------------------
-# Groq Connector
+# OpenRouter Connector
 # ---------------------------------------------------------------------------
 
-class GroqLLMConnector:
-    """Calls the Groq REST API."""
+class OpenRouterLLMConnector:
+    """Calls the OpenRouter REST API (OpenAI-compatible)."""
 
-    BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
+    BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
     def is_available(self) -> bool:
-        return bool(GROQ_API_KEY)
+        return bool(OPENROUTER_API_KEY)
 
     async def call(self, prompt: str, system_prompt: str = SYSTEM_PROMPT) -> dict:
         if not self.is_available():
-            return {"success": False, "error": "GROQ_API_KEY not set"}
+            return {"success": False, "error": "OPENROUTER_API_KEY not set"}
 
         headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:3000",  # required by OpenRouter
+            "X-Title": "LLM Firewall",
         }
         payload = {
-            "model": GROQ_MODEL,
+            "model": OPENROUTER_MODEL,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
@@ -58,13 +59,13 @@ class GroqLLMConnector:
                 return {
                     "success": True,
                     "response": response_text,
-                    "provider": "groq",
+                    "provider": "openrouter",
                     "response_time_ms": elapsed_ms,
                 }
         except httpx.TimeoutException:
-            return {"success": False, "error": "Groq timeout"}
+            return {"success": False, "error": "OpenRouter timeout"}
         except Exception as e:
-            return {"success": False, "error": f"Groq error: {str(e)}"}
+            return {"success": False, "error": f"OpenRouter error: {str(e)}"}
 
 
 # ---------------------------------------------------------------------------
@@ -109,29 +110,29 @@ class OllamaLLMConnector:
 # Unified call_llm()
 # ---------------------------------------------------------------------------
 
-_groq = GroqLLMConnector()
+_openrouter = OpenRouterLLMConnector()
 _ollama = OllamaLLMConnector()
 
 
 async def call_llm(prompt: str, system_prompt: str = SYSTEM_PROMPT) -> dict:
     """
-    Try Groq first, fall back to Ollama on failure.
+    Try OpenRouter first, fall back to Ollama on failure.
 
     Returns:
         {
             success: bool,
             response: str | None,
-            provider: "groq" | "ollama" | "none",
+            provider: "openrouter" | "ollama" | "none",
             response_time_ms: float,
             error: str | None,
         }
     """
-    # Try Groq
-    if _groq.is_available():
-        result = await _groq.call(prompt, system_prompt)
+    # Try OpenRouter
+    if _openrouter.is_available():
+        result = await _openrouter.call(prompt, system_prompt)
         if result["success"]:
             return result
-        print(f"[!] Groq failed: {result.get('error')} — trying Ollama")
+        print(f"[!] OpenRouter failed: {result.get('error')} — trying Ollama")
 
     # Fallback to Ollama
     if _ollama.is_available():
@@ -151,19 +152,19 @@ async def call_llm(prompt: str, system_prompt: str = SYSTEM_PROMPT) -> dict:
 
 async def check_llm_status() -> dict:
     """Ping both providers and return their availability status."""
-    groq_ok = False
+    openrouter_ok = False
     ollama_ok = False
 
-    if _groq.is_available():
+    if _openrouter.is_available():
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(
-                    "https://api.groq.com/openai/v1/models",
-                    headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                    "https://openrouter.ai/api/v1/models",
+                    headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
                 )
-                groq_ok = resp.status_code == 200
+                openrouter_ok = resp.status_code == 200
         except Exception:
-            groq_ok = False
+            openrouter_ok = False
 
     if _ollama.is_available():
         try:
@@ -174,7 +175,7 @@ async def check_llm_status() -> dict:
             ollama_ok = False
 
     return {
-        "groq": {"available": groq_ok, "model": GROQ_MODEL if groq_ok else None},
+        "openrouter": {"available": openrouter_ok, "model": OPENROUTER_MODEL if openrouter_ok else None},
         "ollama": {"available": ollama_ok, "model": OLLAMA_MODEL if ollama_ok else None},
-        "active_provider": "groq" if groq_ok else ("ollama" if ollama_ok else "none"),
+        "active_provider": "openrouter" if openrouter_ok else ("ollama" if ollama_ok else "none"),
     }

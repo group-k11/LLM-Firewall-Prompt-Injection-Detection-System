@@ -66,7 +66,7 @@ export interface LogEntry {
 }
 
 export interface LLMStatus {
-  groq: { available: boolean; model: string | null };
+  openrouter: { available: boolean; model: string | null };
   ollama: { available: boolean; model: string | null };
   active_provider: string;
 }
