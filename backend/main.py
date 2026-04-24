@@ -7,8 +7,10 @@ import time
 import asyncio
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from preprocess import preprocess
@@ -34,6 +36,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_requests: int = 60, window_seconds: int = 60):
+        super().__init__(app)
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.ip_data = {}
+
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host if request.client else "unknown"
+        current_time = time.time()
+        
+        if client_ip in self.ip_data:
+            self.ip_data[client_ip] = [t for t in self.ip_data[client_ip] if current_time - t < self.window_seconds]
+        else:
+            self.ip_data[client_ip] = []
+            
+        if len(self.ip_data[client_ip]) >= self.max_requests:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests, please try again later."}
+            )
+            
+        self.ip_data[client_ip].append(current_time)
+        return await call_next(request)
+
+app.add_middleware(RateLimitMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +263,8 @@ async def demo_attack(request: DemoAttackRequest):
         "without_firewall": without_fw,
         "with_firewall": with_fw,
         "security_value": {
-            "attack_detected": with_fw["decision"] in ("blocked", "allowed_with_warning"),
-            "attack_blocked": with_fw["decision"] == "blocked",
+            "attack_detected": with_fw["status"] in ("blocked", "allowed_with_warning"),
+            "attack_blocked": with_fw["status"] == "blocked",
             "risk_level": with_fw["risk_level"],
             "triggered_rules": with_fw["triggered_rules"],
         },
@@ -255,11 +284,13 @@ async def stats():
 
 
 @app.get("/logs")
-async def logs(limit: int = 50):
+async def logs(limit: int = 50, offset: int = 0):
     """Recent detection logs (newest first)."""
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
-    return get_recent_logs(limit=limit)
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+    return get_recent_logs(limit=limit, offset=offset)
 
 
 @app.get("/health")

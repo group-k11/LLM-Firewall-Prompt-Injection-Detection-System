@@ -65,10 +65,11 @@ def normalize_adversarial(text: str) -> str:
     Full adversarial normalization pipeline.
     Run before rule engine and ML models.
     """
+    text = _detect_and_decode_base64(text)
+    text = _collapse_repeated_punctuation(text)
+    text = text.lower()
     text = _normalize_leetspeak(text)
     text = _remove_spaced_characters(text)
-    text = _collapse_repeated_punctuation(text)
-    text = _detect_and_decode_base64(text)
     return text
 
 
@@ -77,10 +78,9 @@ def preprocess(text: str) -> str:
     Full preprocessing pipeline:
     1. Strip and normalize unicode
     2. Remove invisible/zero-width characters
-    3. Lowercase
-    4. Adversarial normalization (leetspeak, spacing, punctuation, base64)
-    5. Collapse whitespace
-    6. Remove control characters
+    3. Adversarial normalization (base64, punctuation, lowercase, leetspeak, spacing)
+    4. Collapse whitespace
+    5. Remove control characters
     """
     if not text or not isinstance(text, str):
         return ""
@@ -88,7 +88,6 @@ def preprocess(text: str) -> str:
     text = text.strip()
     text = unicodedata.normalize("NFKD", text)
     text = re.sub(r"[\u200b\u200c\u200d\ufeff\u00ad]", "", text)
-    text = text.lower()
     text = normalize_adversarial(text)
     text = re.sub(r"\s+", " ", text)
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)

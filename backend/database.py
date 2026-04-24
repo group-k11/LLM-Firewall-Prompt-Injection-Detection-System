@@ -141,7 +141,7 @@ def get_stats() -> dict[str, Any]:
     }
 
 
-def get_recent_logs(limit: int = 50) -> list[dict]:
+def get_recent_logs(limit: int = 50, offset: int = 0) -> list[dict]:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -150,8 +150,8 @@ def get_recent_logs(limit: int = 50) -> list[dict]:
                triggered_rules, llm_provider, llm_response, llm_called, response_time_ms
         FROM prompt_logs
         ORDER BY id DESC
-        LIMIT ?
-    """, (limit,))
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
     rows = cursor.fetchall()
     conn.close()
 
