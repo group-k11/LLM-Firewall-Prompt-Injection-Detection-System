@@ -43,6 +43,7 @@ app.add_middleware(
 class PromptRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4096)
     firewall_enabled: bool = Field(default=True)
+    skip_llm: bool = Field(default=False, description="Skip LLM call — return only security analysis results")
 
 
 class CheckPromptResponse(BaseModel):
@@ -70,7 +71,7 @@ class DemoAttackRequest(BaseModel):
 # Helper: run the full firewall pipeline
 # ---------------------------------------------------------------------------
 
-async def _run_pipeline(raw_prompt: str, firewall_enabled: bool = True) -> dict:
+async def _run_pipeline(raw_prompt: str, firewall_enabled: bool = True, skip_llm: bool = False) -> dict:
     t_start = time.perf_counter()
 
     # 1. Preprocess
@@ -117,8 +118,8 @@ async def _run_pipeline(raw_prompt: str, firewall_enabled: bool = True) -> dict:
     llm_called = False
     llm_response_time_ms = 0.0
 
-    if decision == "blocked":
-        # NEVER call LLM for malicious prompts
+    if decision == "blocked" or skip_llm:
+        # Skip LLM: either malicious prompt or caller requested analysis-only mode
         pass
     else:
         # Sanitize suspicious prompts before forwarding
@@ -201,11 +202,16 @@ async def check_prompt(request: PromptRequest):
     """
     Full firewall pipeline.
     Returns spec-compliant response for ALLOWED / SUSPICIOUS / BLOCKED prompts.
+    Pass skip_llm=true to get instant security analysis without waiting for LLM API calls.
     """
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    return await _run_pipeline(request.prompt, firewall_enabled=request.firewall_enabled)
+    return await _run_pipeline(
+        request.prompt,
+        firewall_enabled=request.firewall_enabled,
+        skip_llm=request.skip_llm,
+    )
 
 
 @app.post("/demo_attack")
