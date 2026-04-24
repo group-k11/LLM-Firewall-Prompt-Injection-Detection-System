@@ -138,6 +138,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser. Use the pro
 * Siddesh Shirote
 * Satyam Shrivastav
 * Sujit Patil
+* Sarthak Tagalpallewar
+* Sourav Kataria
 * Team Members (Group 11)
 
 ## 📜 License
