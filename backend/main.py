@@ -32,7 +32,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False, # Changed to False for "*" origin compatibility
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -100,7 +100,7 @@ class DemoAttackRequest(BaseModel):
 # Helper: run the full firewall pipeline
 # ---------------------------------------------------------------------------
 
-async def _run_pipeline(raw_prompt: str, firewall_enabled: bool = True, skip_llm: bool = False) -> dict:
+async def _run_pipeline(raw_prompt: str, firewall_enabled: bool = True, skip_llm: bool = False, skip_log: bool = False) -> dict:
     t_start = time.perf_counter()
 
     # 1. Preprocess
@@ -168,24 +168,25 @@ async def _run_pipeline(raw_prompt: str, firewall_enabled: bool = True, skip_llm
     processing_time_ms = round((time.perf_counter() - t_start) * 1000, 1)
 
     # 6. Log to DB
-    log_prompt(
-        prompt=raw_prompt,
-        risk_score=risk["risk_score"],
-        risk_level=risk_level,
-        decision=decision,
-        reason=risk["reason"],
-        rule_score=risk["details"]["rule_score"],
-        svm_score=ml_result["svm_score"],
-        transformer_score=ml_result["transformer_score"],
-        combined_score=ml_result["combined_score"],
-        confidence=confidence,
-        pattern_count=risk["details"]["pattern_count"],
-        triggered_rules=risk["triggered_rules"],
-        llm_provider=provider or "",
-        llm_response=llm_response or "",
-        llm_called=llm_called,
-        response_time_ms=llm_response_time_ms,
-    )
+    if not skip_log:
+        log_prompt(
+            prompt=raw_prompt,
+            risk_score=risk["risk_score"],
+            risk_level=risk_level,
+            decision=decision,
+            reason=risk["reason"],
+            rule_score=risk["details"]["rule_score"],
+            svm_score=ml_result["svm_score"],
+            transformer_score=ml_result["transformer_score"],
+            combined_score=ml_result["combined_score"],
+            confidence=confidence,
+            pattern_count=risk["details"]["pattern_count"],
+            triggered_rules=risk["triggered_rules"],
+            llm_provider=provider or "",
+            llm_response=llm_response or "",
+            llm_called=llm_called,
+            response_time_ms=llm_response_time_ms,
+        )
 
     # 7. Build response
     return {
@@ -252,10 +253,10 @@ async def demo_attack(request: DemoAttackRequest):
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    # Run both paths concurrently
+    # Run both paths concurrently (skip logging for demo comparisons)
     without_fw, with_fw = await asyncio.gather(
-        _run_pipeline(request.prompt, firewall_enabled=False),
-        _run_pipeline(request.prompt, firewall_enabled=True),
+        _run_pipeline(request.prompt, firewall_enabled=False, skip_log=True),
+        _run_pipeline(request.prompt, firewall_enabled=True, skip_log=True),
     )
 
     return {

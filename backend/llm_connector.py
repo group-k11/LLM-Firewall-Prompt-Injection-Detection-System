@@ -52,16 +52,21 @@ class OpenRouterLLMConnector:
         try:
             async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
                 resp = await client.post(self.BASE_URL, json=payload, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    if choices and len(choices) > 0:
+                        message = choices[0].get("message", {})
+                        response_text = message.get("content", "")
+                        return {
+                            "success": True,
+                            "response": response_text,
+                            "provider": "openrouter",
+                            "model": OPENROUTER_MODEL,
+                            "response_time_ms": round((time.perf_counter() - t0) * 1000, 1)
+                        }
+                    return {"success": False, "error": "Empty response from OpenRouter"}
                 resp.raise_for_status()
-                data = resp.json()
-                response_text = data["choices"][0]["message"]["content"]
-                elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
-                return {
-                    "success": True,
-                    "response": response_text,
-                    "provider": "openrouter",
-                    "response_time_ms": elapsed_ms,
-                }
         except httpx.TimeoutException:
             return {"success": False, "error": "OpenRouter timeout"}
         except Exception as e:
