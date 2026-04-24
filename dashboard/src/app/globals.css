@@ -458,6 +458,12 @@ body {
     padding: 16px 12px !important;
   }
 
+  /* Collapse 2-column grids to 1 column on mobile */
+  .main-content > div[style*="grid-template-columns: 1fr 1fr"],
+  .main-content > div[style*="grid-template-columns:1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
   /* Footer */
   footer > div {
     flex-direction: column !important;

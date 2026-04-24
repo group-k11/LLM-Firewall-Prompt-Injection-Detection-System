@@ -101,6 +101,48 @@ INJECTION_PATTERNS: List[Tuple[str, str, float]] = [
      "Secret extraction", 0.80),
     (r"(format|output|reply\s+with)\s+(your\s+)?(system|initial)\s+(message|prompt|instructions)\s+as\s+(a\s+)?(json|code|markdown)",
      "Formatted prompt extraction", 0.90),
+
+    # --- Story / Fiction Frame Attacks ---
+    (r"write\s+a?\s*(story|novel|fiction|tale|scenario)\s+where\s+.{0,60}(ai|assistant|model|chatbot).{0,40}(ignores?|bypasses?|reveals?|disables?)",
+     "Fiction frame attack", 0.85),
+    (r"(create|write)\s+(a\s+)?(story|script|scene)\s+where.{0,60}(safety|filters?|rules?)\s+(don.t|doesn.t|no\s+longer)\s+exist",
+     "Fiction safety bypass", 0.85),
+    (r"(write|generate)\s+(me\s+)?a\s+(story|hypothetical|fictional\s+scenario).{0,80}(ignore|bypass|disable|reveal)\s+(all\s+)?(instructions|safety|filters?|rules?)",
+     "Fictional injection wrapper", 0.88),
+
+    # --- Hypothetical / Imagination Bypass ---
+    (r"imagine\s+(a\s+world|you\s+are|that).{0,80}(rules?|filter|safety|restriction).{0,40}(don.t|doesn.t|not|no\s+longer)\s+exist",
+     "Hypothetical bypass scenario", 0.85),
+    (r"(in\s+a\s+hypothetical|hypothetically|let.s\s+say|suppose\s+that).{0,80}(ignor|bypass|disable|remove).{0,40}(safety|filter|restriction|rule)",
+     "Hypothetical framing", 0.80),
+    (r"(for\s+(educational|research|academic|testing)\s+purposes?).{0,100}(ignore|bypass|reveal|disable)",
+     "Research framing attack", 0.75),
+    (r"(as\s+a\s+(thought\s+experiment|hypothetical|test)).{0,80}(ignore|bypass|reveal)",
+     "Thought experiment framing", 0.78),
+
+    # --- Translation / Summarization Injection ---
+    (r"translat[ei].{0,30}[\"''\u201c\u201d].{0,200}(ignore|bypass|system\s+prompt|reveal).{0,200}[\"''\u201c\u201d]",
+     "Translation-wrapped injection", 0.88),
+    (r"summariz[ei].{0,30}[\"''\u201c\u201d].{0,200}(ignore|bypass|system\s+prompt|reveal).{0,200}[\"''\u201c\u201d]",
+     "Summarization-wrapped injection", 0.85),
+    (r"(paraphras|rewrite|convert).{0,30}[\"''\u201c\u201d].{0,200}(ignore|bypass|system\s+prompt|new\s+instruction).{0,200}[\"''\u201c\u201d]",
+     "Rewrite-wrapped injection", 0.83),
+
+    # --- Multi-Turn / Gradual Escalation Indicators ---
+    (r"(in\s+our\s+last\s+conversation|you\s+previously\s+agreed|earlier\s+you\s+said|remember\s+when\s+you).{0,80}(ignore|bypass|allow|reveal)",
+     "Multi-turn reference manipulation", 0.80),
+    (r"(continuing\s+from|as\s+we\s+discussed|building\s+on\s+what).{0,80}(ignore|bypass|jailbreak|unrestricted)",
+     "Session escalation attempt", 0.75),
+
+    # --- Covert Instruction Embedding ---
+    (r"(the\s+(next|following)\s+(message|input|prompt|text)\s+is\s+(just\s+a\s+)?test).{0,80}(ignore|bypass|allow)",
+     "Covert test framing", 0.78),
+    (r"note\s+to\s+(ai|assistant|model|llm)\s*:\s*(ignore|bypass|disregard|new\s+instruction)",
+     "Hidden note injection", 0.90),
+    (r"\[hidden\s+(instruction|message|note)\].{0,100}(ignore|bypass|reveal|new)",
+     "Hidden bracket injection", 0.90),
+    (r"<!--.{0,200}(ignore|bypass|system|instruction).{0,200}-->",
+     "HTML comment injection", 0.85),
 ]
 
 
