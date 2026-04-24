@@ -2,10 +2,10 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { motion, useAnimation, useInView } from "framer-motion";
+import { motion } from "framer-motion";
 import {
-  Shield, ShieldAlert, Cpu, TerminalSquare, Settings, Lock,
-  Zap, Code2, Regex, Database, ChevronRight, CheckCircle2, AlertTriangle, FileCode2, BrainCircuit, Activity
+  Shield, ShieldAlert, TerminalSquare, Settings, Lock,
+  Code2, Regex, Database, CheckCircle2, AlertTriangle, FileCode2, BrainCircuit, Activity
 } from "lucide-react";
 
 /* =====================================================================
@@ -121,14 +121,14 @@ export default function CyberpunkLandingPage() {
         <div style={{ display: "flex", gap: "32px", fontSize: "14px", fontWeight: 500, fontFamily: "var(--font-mono)" }}>
           <a href="#features" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>FEATURES</a>
           <a href="#architecture" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>HOW IT WORKS</a>
-          <a href="#" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>DOCS</a>
-          <a href="#" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>PRICING</a>
+          <a href="/dashboard" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>DOCS</a>
+          <a href="/dashboard" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>PRICING</a>
         </div>
 
         <div>
-          <button className="btn-primary" style={{ boxShadow: "var(--cyan-glow)" }}>
-            Start Free Trial
-          </button>
+          <Link href="/dashboard" className="btn-primary" style={{ boxShadow: "var(--cyan-glow)" }}>
+            Enter Dashboard
+          </Link>
         </div>
       </nav>
 
@@ -243,9 +243,9 @@ export default function CyberpunkLandingPage() {
             </div>
             
             <div style={{ display: "flex", gap: "24px", fontSize: "14px", color: "var(--text-secondary)" }}>
-              <a href="#" style={{ color: "inherit", textDecoration: "none" }}>GitHub</a>
-              <a href="#" style={{ color: "inherit", textDecoration: "none" }}>Documentation</a>
-              <a href="#" style={{ color: "inherit", textDecoration: "none" }}>API Reference</a>
+              <a href="https://github.com/group-k11/LLM-Firewall-Prompt-Injection-Detection-System" target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "none" }}>GitHub</a>
+              <a href="/dashboard" style={{ color: "inherit", textDecoration: "none" }}>Documentation</a>
+              <a href="/dashboard" style={{ color: "inherit", textDecoration: "none" }}>API Reference</a>
             </div>
             
             <div className="badge badge-neutral" style={{ fontSize: "11px" }}>
@@ -314,20 +314,35 @@ function ThreatCard({ icon, title, desc }: { icon: React.ReactNode, title: strin
 
 function LiveDemoPanel() {
   const [input, setInput] = useState("");
-  const [result, setResult] = useState<"IDLE" | "ANALYZING" | "SAFE" | "BLOCKED">("IDLE");
+  const [result, setResult] = useState<"IDLE" | "ANALYZING" | "SAFE" | "BLOCKED" | "ERROR">("IDLE");
+  const [riskLevel, setRiskLevel] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
-  const runAnalysis = () => {
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  const runAnalysis = async () => {
     if (!input.trim()) return;
     setResult("ANALYZING");
-    setTimeout(() => {
-      // Mock logic: block anything with "ignore", "system", "prompt", "bypass"
-      const lower = input.toLowerCase();
-      if (lower.includes("ignore") || lower.includes("system") || lower.includes("prompt") || lower.includes("bypass")) {
+    setErrorMsg("");
+    try {
+      const res = await fetch(`${API_BASE}/check_prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: input, firewall_enabled: true }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = await res.json();
+      setRiskLevel(data.risk_level ?? "");
+      if (data.status === "blocked") {
         setResult("BLOCKED");
       } else {
         setResult("SAFE");
       }
-    }, 1500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg);
+      setResult("ERROR");
+    }
   };
 
   return (
@@ -365,11 +380,19 @@ function LiveDemoPanel() {
             </div>
           )}
 
+          {result === "ERROR" && (
+            <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} style={{ padding: "32px", background: "rgba(255,165,0,0.1)", border: "1px solid orange", borderRadius: "var(--radius-md)", color: "orange", textAlign: "center" }}>
+              <AlertTriangle size={48} style={{ margin: "0 auto 16px" }} />
+              <div className="heading-syne" style={{ fontSize: "24px", marginBottom: "8px" }}>API UNREACHABLE</div>
+              <div className="mono" style={{ fontSize: "12px", opacity: 0.8 }}>Backend offline — start the FastAPI server.<br/>{errorMsg}</div>
+            </motion.div>
+          )}
+
           {result === "SAFE" && (
             <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} style={{ padding: "40px", background: "var(--safe-bg)", border: "1px solid var(--safe)", borderRadius: "var(--radius-md)", color: "var(--safe)", textAlign: "center", boxShadow: "var(--cyan-glow)" }}>
               <CheckCircle2 size={64} style={{ margin: "0 auto 16px" }} />
               <div className="heading-syne" style={{ fontSize: "32px", marginBottom: "8px" }}>ALLOWED</div>
-              <div className="mono" style={{ fontSize: "14px" }}>Prompt safely forwarded to LLM.</div>
+              <div className="mono" style={{ fontSize: "14px" }}>Risk: {riskLevel.toUpperCase()} — Prompt safely forwarded to LLM.</div>
             </motion.div>
           )}
 

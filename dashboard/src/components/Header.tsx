@@ -1,6 +1,6 @@
 "use client";
 
-import { Shield, Database, Power } from "lucide-react";
+import { Shield, Database } from "lucide-react";
 import { type LLMStatus } from "@/services/api";
 
 interface HeaderProps {

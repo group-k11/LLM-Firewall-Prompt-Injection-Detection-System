@@ -189,7 +189,7 @@ async def root():
         "endpoints": {
             "POST /check_prompt": "Analyze a prompt and optionally call LLM",
             "POST /demo_attack": "Compare prompt with/without firewall",
-            "GET /llm_status": "Check Groq and Ollama availability",
+            "GET /llm_status": "Check OpenRouter and Ollama availability",
             "GET /logs": "Recent detection logs",
             "GET /stats": "Dashboard statistics",
         },
@@ -238,7 +238,7 @@ async def demo_attack(request: DemoAttackRequest):
 
 @app.get("/llm_status")
 async def llm_status():
-    """Check availability of Groq and Ollama."""
+    """Check availability of OpenRouter and Ollama."""
     return await check_llm_status()
 
 

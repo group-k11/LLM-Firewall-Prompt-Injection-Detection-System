@@ -6,7 +6,7 @@
 
 **LLM Firewall** is a production-grade security middleware designed to protect Large Language Model (LLM) applications from **prompt injection**, **jailbreak attacks**, and **adversarial obfuscation**. 
 
-It acts as a protective layer between end-users and your LLM API (Groq, OpenAI, Ollama), intercepting prompts in real-time, executing a hybrid machine-learning pipeline, and neutralizing threats before they reach the model.
+It acts as a protective layer between end-users and your LLM API (OpenRouter, Ollama), intercepting prompts in real-time, executing a hybrid machine-learning pipeline, and neutralizing threats before they reach the model.
 
 ---
 
@@ -82,7 +82,7 @@ User Input
 * **Scikit-learn** (TF-IDF + SVM)
 * **Sentence-Transformers** (Semantic Embeddings)
 * **SQLite** (Audit Logging)
-* **Groq** & **HTTPX** (LLM Integrations)
+* **OpenRouter** & **HTTPX** (LLM Integrations)
 
 ### Frontend (Dashboard)
 * **Next.js 14** (App Router)
@@ -104,7 +104,7 @@ pip install -r requirements.txt
 
 # Configure Environment Variables
 cp .env.example .env
-# Edit .env and add your GROQ_API_KEY
+# Edit .env and add your OPENROUTER_API_KEY
 
 # Train the Machine Learning Models (takes ~1 minute)
 python train_model.py

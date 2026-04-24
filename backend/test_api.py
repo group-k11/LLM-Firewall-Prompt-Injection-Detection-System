@@ -32,4 +32,4 @@ print("STATS  total=" + str(s["total_prompts"]) + " blocked=" + str(s["blocked_a
 # Test 5: llm_status
 r3 = urllib.request.urlopen(base + "/llm_status")
 ls = json.loads(r3.read())
-print("LLM    active=" + ls["active_provider"] + " groq=" + str(ls["groq"]["available"]) + " ollama=" + str(ls["ollama"]["available"]))
+print("LLM    active=" + ls["active_provider"] + " openrouter=" + str(ls["openrouter"]["available"]) + " ollama=" + str(ls["ollama"]["available"]))
