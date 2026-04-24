@@ -391,3 +391,98 @@ body {
   z-index: -2;
   pointer-events: none;
 }
+
+/* Skeleton Loading Pulse */
+@keyframes skeleton-pulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+.skeleton-pulse {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* ============================================
+ * RESPONSIVE MOBILE LAYOUT
+ * ============================================ */
+
+/* Tablet and below */
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  /* Landing navbar */
+  .landing-nav {
+    padding: 14px 16px !important;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .landing-nav .nav-links {
+    display: none !important;
+  }
+
+  /* Hero heading */
+  .hero-heading {
+    font-size: 36px !important;
+  }
+
+  /* Hero stats bar */
+  .hero-stats-bar {
+    flex-direction: column !important;
+    gap: 16px !important;
+    padding: 16px 20px !important;
+    text-align: center;
+  }
+  .hero-stats-bar > div[style*="width: 1px"] {
+    width: 100% !important;
+    height: 1px !important;
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Live demo panel */
+  .glass-panel > div[style*="flex: 1"] {
+    min-width: 100%;
+  }
+
+  /* Main dashboard content */
+  .main-content {
+    padding: 16px 12px !important;
+  }
+
+  /* Footer */
+  footer > div {
+    flex-direction: column !important;
+    text-align: center;
+  }
+}
+
+/* Small mobile */
+@media (max-width: 480px) {
+  .hero-heading {
+    font-size: 28px !important;
+  }
+
+  .btn-filled,
+  .btn-primary {
+    padding: 12px 20px !important;
+    font-size: 13px !important;
+    width: 100%;
+  }
+
+  .logs-table {
+    font-size: 11px;
+  }
+  .logs-table th,
+  .logs-table td {
+    padding: 8px 10px;
+  }
+}

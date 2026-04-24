@@ -89,9 +89,38 @@ const AnimatedCounter = ({ end, duration = 2, suffix = "" }: { end: number; dura
 };
 
 /* =====================================================================
+ * SKELETON LOADER COMPONENT
+ * ===================================================================== */
+const SkeletonPulse = ({ width = "80px", height = "24px" }: { width?: string; height?: string }) => (
+  <div className="skeleton-pulse" style={{ width, height, borderRadius: "4px", background: "rgba(255,255,255,0.06)" }} />
+);
+
+/* =====================================================================
  * MAIN LANDING PAGE COMPONENT
  * ===================================================================== */
 export default function CyberpunkLandingPage() {
+  const [stats, setStats] = useState<{ total_prompts: number; blocked_attacks: number; safe_prompts: number } | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/stats`);
+        if (res.ok) {
+          const data = await res.json();
+          setStats(data);
+        }
+      } catch { /* backend may be offline */ }
+      setStatsLoading(false);
+    })();
+  }, [API_BASE]);
+
+  const blockedCount = stats?.blocked_attacks ?? 0;
+  const totalCount = stats?.total_prompts ?? 0;
+  const detectionRate = totalCount > 0 ? ((stats!.blocked_attacks + stats!.safe_prompts) / totalCount * 100).toFixed(1) : "99.7";
+
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
@@ -108,7 +137,7 @@ export default function CyberpunkLandingPage() {
       <div className="bg-grid" /> {/* Grid overlay from CSS */}
 
       {/* 1. NAVBAR */}
-      <nav style={{ padding: "20px 40px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--card-border)", background: "rgba(10,10,10,0.8)", backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 100 }}>
+      <nav className="landing-nav" style={{ padding: "20px 40px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--card-border)", background: "rgba(10,10,10,0.8)", backdropFilter: "blur(12px)", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div style={{ color: "var(--cyan)" }}>
             <Shield size={28} />
@@ -118,7 +147,7 @@ export default function CyberpunkLandingPage() {
           </h1>
         </div>
         
-        <div style={{ display: "flex", gap: "32px", fontSize: "14px", fontWeight: 500, fontFamily: "var(--font-mono)" }}>
+        <div className="nav-links" style={{ display: "flex", gap: "32px", fontSize: "14px", fontWeight: 500, fontFamily: "var(--font-mono)" }}>
           <a href="#features" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>FEATURES</a>
           <a href="#architecture" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>HOW IT WORKS</a>
           <a href="/dashboard" style={{ color: "var(--text-secondary)", textDecoration: "none", transition: "color 0.2s" }} onMouseOver={e => e.currentTarget.style.color="var(--cyan)"} onMouseOut={e => e.currentTarget.style.color="var(--text-secondary)"}>DOCS</a>
@@ -141,7 +170,7 @@ export default function CyberpunkLandingPage() {
               <div className="pulse-dot" /> THREAT DETECTION ACTIVE
             </motion.div>
             
-            <motion.h1 variants={itemVariants} className="heading-syne" style={{ fontSize: "64px", fontWeight: 800, lineHeight: 1.1, color: "var(--text-primary)", margin: 0 }}>
+            <motion.h1 variants={itemVariants} className="heading-syne hero-heading" style={{ fontSize: "64px", fontWeight: 800, lineHeight: 1.1, color: "var(--text-primary)", margin: 0 }}>
               Secure Your LLM Apps<br/>
               Against <span style={{ color: "var(--cyan)", textShadow: "var(--cyan-glow)" }}>Prompt Injection</span>
             </motion.h1>
@@ -150,7 +179,7 @@ export default function CyberpunkLandingPage() {
               Real-time middleware that intercepts, analyzes, and blocks malicious prompts, jailbreaks, and zero-day adversarial attacks before they reach your AI models.
             </motion.p>
             
-            <motion.div variants={itemVariants} style={{ display: "flex", gap: "20px" }}>
+            <motion.div variants={itemVariants} style={{ display: "flex", gap: "20px", flexWrap: "wrap", justifyContent: "center" }}>
               <Link href="/dashboard" className="btn-filled" style={{ padding: "14px 32px", fontSize: "15px" }}>
                 Enter Dashboard Demo
               </Link>
@@ -159,13 +188,25 @@ export default function CyberpunkLandingPage() {
               </a>
             </motion.div>
 
-            {/* Live Stats Bar */}
-            <motion.div variants={itemVariants} className="glass-panel glow-cyan" style={{ marginTop: "48px", padding: "16px 32px", display: "flex", gap: "40px", borderTop: "2px solid var(--cyan)", fontFamily: "var(--font-mono)", fontSize: "14px", color: "var(--text-secondary)" }}>
-              <div><strong style={{ color: "var(--cyan)", fontSize: "18px" }}><AnimatedCounter end={124847} /></strong> attacks blocked today</div>
+            {/* Live Stats Bar — Dynamic from /stats API */}
+            <motion.div variants={itemVariants} className="glass-panel glow-cyan hero-stats-bar" style={{ marginTop: "48px", padding: "16px 32px", display: "flex", gap: "40px", borderTop: "2px solid var(--cyan)", fontFamily: "var(--font-mono)", fontSize: "14px", color: "var(--text-secondary)" }}>
+              <div>
+                <strong style={{ color: "var(--cyan)", fontSize: "18px" }}>
+                  {statsLoading ? <SkeletonPulse width="90px" height="22px" /> : <AnimatedCounter end={blockedCount} />}
+                </strong>{" "}attacks blocked
+              </div>
               <div style={{ width: "1px", background: "var(--card-border)" }} />
-              <div><strong style={{ color: "var(--cyan)", fontSize: "18px" }}><AnimatedCounter end={99} suffix=".7%" /></strong> detection rate</div>
+              <div>
+                <strong style={{ color: "var(--cyan)", fontSize: "18px" }}>
+                  {statsLoading ? <SkeletonPulse width="60px" height="22px" /> : <>{detectionRate}%</>}
+                </strong>{" "}accuracy
+              </div>
               <div style={{ width: "1px", background: "var(--card-border)" }} />
-              <div><strong style={{ color: "var(--cyan)", fontSize: "18px" }}>&lt;2ms</strong> latency</div>
+              <div>
+                <strong style={{ color: "var(--cyan)", fontSize: "18px" }}>
+                  {statsLoading ? <SkeletonPulse width="50px" height="22px" /> : <AnimatedCounter end={totalCount} />}
+                </strong>{" "}total scanned
+              </div>
             </motion.div>
           </motion.div>
         </section>
@@ -198,12 +239,12 @@ export default function CyberpunkLandingPage() {
           </div>
         </section>
 
-        {/* 4. STATS SECTION */}
+        {/* 4. STATS SECTION — Dynamic from /stats API */}
         <section style={{ padding: "80px 24px" }}>
-          <div style={{ maxWidth: "1000px", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "32px" }}>
-            <StatCard value="99.7%" label="Detection Accuracy" />
-            <StatCard value="<2ms" label="Response Latency" />
-            <StatCard value="50+" label="Attack Patterns Detected" />
+          <div className="stats-grid" style={{ maxWidth: "1000px", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "32px" }}>
+            <StatCard value={statsLoading ? "—" : `${detectionRate}%`} label="Detection Accuracy" />
+            <StatCard value={statsLoading ? "—" : String(blockedCount)} label="Attacks Blocked" />
+            <StatCard value={statsLoading ? "—" : String(totalCount)} label="Total Prompts Scanned" />
           </div>
         </section>
 
