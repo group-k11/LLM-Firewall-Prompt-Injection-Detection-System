@@ -1,8 +1,10 @@
 # 🔐 LLM Firewall – Prompt Injection Detection System
 
-![Dashboard UI](https://img.shields.io/badge/UI-Next.js%2014-black?style=flat-square&logo=next.js)
+![Version](https://img.shields.io/badge/version-2.0.0-brightgreen?style=flat-square)
+![Dashboard UI](https://img.shields.io/badge/UI-Next.js%2016-black?style=flat-square&logo=next.js)
 ![Backend API](https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square&logo=fastapi)
 ![ML Models](https://img.shields.io/badge/ML-Scikit--Learn%20%7C%20Transformers-blue?style=flat-square&logo=scikit-learn)
+![License](https://img.shields.io/badge/license-Academic-lightgrey?style=flat-square)
 
 **LLM Firewall** is a production-grade security middleware designed to protect Large Language Model (LLM) applications from **prompt injection**, **jailbreak attacks**, and **adversarial obfuscation**. 
 
@@ -44,6 +46,34 @@ To prove the firewall's efficacy, the dashboard includes a side-by-side **Demo M
 
 ---
 
+## 🆕 What's New in v2.0
+
+This release represents a major upgrade from the v1 prototype to an enterprise-grade detection system.
+
+### Advanced Detection Modules
+| Module | What Changed |
+|---|---|
+| `encoding_normalizer.py` | Decodes HTML entities, strips zero-width characters (ZWSP), collapses Unicode spaces, maps fullwidth chars to ASCII, detects homoglyph & leetspeak obfuscation |
+| `nested_detector.py` | Regex heuristics to detect injections hidden inside translation requests, summarization wrappers, fictional story frames, and quoted string extractions |
+| `session_tracker.py` | Thread-safe in-memory ring buffer for multi-turn tracking; detects gradual escalation and repeated probing with an automatic risk-score boost |
+
+### Upgraded Decision Logic
+- **4-Component Scoring Formula:** `0.25 (SVM) + 0.30 (Transformer) + 0.25 (Rules) + 0.20 (Encoding)` + session escalation boost
+- **Expanded Rule Engine:** 18 new patterns added (roleplay, hypotheticals, covert embedding)
+- **New Thresholds:** Malicious floor lowered to `0.60` for more aggressive blocking; high-severity rule override forces a `0.75` minimum score
+
+### Database & API Upgrades
+- SQLite schema migrated to include `session_id`, `normalized_prompt`, `attack_category`, `encoding_anomaly_score`, and `triggered_layers`
+- New endpoints: `GET /attack_trends` (time-series analytics) and `GET /session/{id}` (multi-turn session history)
+
+### Frontend Enhancements
+- `SessionTimeline.tsx` — visualizes the live sequence of prompts highlighting escalating risk levels
+- `AttackChart.tsx` — SVG donut chart for attack-category breakdown + daily threat bar chart
+- Enhanced result panel exposes which detection layers triggered with individual anomaly scores
+- Mobile-responsive stacked layout in `globals.css`
+
+---
+
 ## 🏗️ System Architecture
 
 ```text
@@ -53,13 +83,16 @@ User Input
 [ Next.js Dashboard ] ── POST /check_prompt ──┐
                                               │
   ┌───────────────────────────────────────────┴────────────────────────────────────────┐
-  │                           FASTAPI SECURITY MIDDLEWARE                              │
+  │                           FASTAPI SECURITY MIDDLEWARE  (v2.0)                     │
   │                                                                                    │
-  │  1. Preprocessor (Normalizes Base64, Leetspeak, Whitespace)                        │
-  │  2. Rule Engine  (Regex heuristic checks)                                          │
-  │  3. ML Pipeline  (TF-IDF SVM  +  MiniLM Transformer)                               │
-  │  4. Decision Engine (Calculates Hybrid Risk: Safe / Suspicious / Malicious)        │
-  │  5. Database Logger (Records metrics to SQLite)                                    │
+  │  1. Encoding Normalizer (Unicode, HTML entities, ZWSP, homoglyphs)                 │
+  │  2. Preprocessor        (Normalizes Base64, Leetspeak, Whitespace)                 │
+  │  3. Rule Engine         (Regex heuristic checks — 30+ patterns)                   │
+  │  4. Nested Detector     (Finds injections inside wrappers & stories)               │
+  │  5. ML Pipeline         (TF-IDF SVM + MiniLM Transformer — hybrid score)          │
+  │  6. Session Tracker     (Multi-turn escalation detection)                          │
+  │  7. Decision Engine     (4-component weighted risk: Safe / Suspicious / Malicious) │
+  │  8. Database Logger     (Records full telemetry to SQLite)                         │
   └───────────────────────────────────────────┬────────────────────────────────────────┘
                                               │
                     ┌─────────────────────────┴────────────────────────┐
@@ -133,14 +166,17 @@ Open [http://localhost:3000](http://localhost:3000) in your browser. Use the pro
 
 ---
 
-## 👨‍💻 Contributors
+## 👨‍💻 Contributors — Group K11
 
-* Siddesh Shirote
-* Satyam Shrivastav
-* Sujit Patil
-* Sarthak Tagalpallewar
-* Sourav Kataria
-* Team Members (Group 11)
+| Name | Role |
+|---|---|
+| Siddesh Shirote | ML Pipeline & Model Training |
+| Satyam Shrivastav | Rule Engine & Backend Architecture |
+| Sujit Patil | Database & API Design |
+| **Sarthak Tagalpallewar** | **v2.0 Detection Modules (Encoding Normalizer, Nested Detector, Session Tracker), Decision Engine Upgrade** |
+| Sourav Kataria | Frontend Dashboard & UI |
+
+> 🎓 Academic Project — Developed as part of the Software Engineering Course (4th Semester, Group K11)
 
 ## 📜 License
 This project is for academic, educational, and cybersecurity research purposes.
