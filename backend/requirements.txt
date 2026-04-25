@@ -8,4 +8,4 @@ httpx>=0.27.0
 python-dotenv>=1.0.0
 sentence-transformers>=2.7.0
 numpy>=1.24.0
-# openrouter is called via httpx (already listed above) — no extra SDK needed
+# Groq, OpenRouter, and Ollama are all called via httpx — no extra SDK needed

@@ -8,9 +8,19 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Primary LLM (Groq — ultra-fast, free tier)
+      - GROQ_API_KEY=${GROQ_API_KEY:-""}
+      - GROQ_MODEL=${GROQ_MODEL:-llama3-8b-8192}
+      # Secondary LLM (OpenRouter fallback)
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-""}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      # Local LLM (Ollama fallback)
       - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-10}
     restart: unless-stopped
+    volumes:
+      - backend_db:/app/backend
 
   dashboard:
     build:
@@ -19,7 +29,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://backend:8000}
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  backend_db:
