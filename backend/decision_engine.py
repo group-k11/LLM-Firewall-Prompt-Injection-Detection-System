@@ -140,10 +140,15 @@ def compute_risk(
             encoding_anomaly     * W_ENCODING
         )
     else:
-        # Fallback: rule + encoding only
-        base_score = effective_rule_score * 0.60 + encoding_anomaly * 0.40
-        if not rule_result.get("matched") and encoding_anomaly < 0.1:
-            base_score = 0.1
+        # Fallback: ML unavailable — use rule score directly so that a high-severity
+        # rule match (e.g. 0.8) is not diluted below the malicious threshold.
+        # encoding_anomaly provides a small secondary signal.
+        if rule_result.get("matched"):
+            base_score = effective_rule_score * 0.85 + encoding_anomaly * 0.15
+        else:
+            base_score = encoding_anomaly * 0.40
+            if encoding_anomaly < 0.1:
+                base_score = 0.05  # no rule match, no encoding anomaly → near-zero
 
     # High-severity rule override (force malicious floor)
     if rule_result.get("matched") and rule_result.get("max_severity", 0) >= RULE_OVERRIDE_SEVERITY:

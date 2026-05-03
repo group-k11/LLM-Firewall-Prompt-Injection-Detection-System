@@ -3,18 +3,19 @@ LLM Firewall v2.0 — FastAPI Application
 
 Full v2.0 pipeline:
   User Prompt
-  → Session Tracker (multi-turn context)
+  → Session Tracker (multi-turn context, SQLite-backed)
   → Encoding Normalizer (unicode + HTML decoding)
   → Preprocessing (cleaning + normalization)
   → Rule Engine (regex patterns)
-  → SVM Classifier (TF-IDF)
-  → Sentence Transformer (semantic intent detection)
+  → SVM Classifier (TF-IDF)          [non-blocking, asyncio.to_thread]
+  → Sentence Transformer (semantic intent detection) [pre-warmed on startup]
   → Nested Instruction Detector
   → Risk Scoring Engine (weighted combination)
   → Decision Engine
   → BLOCK / ALLOW / SUSPICIOUS
-  → LLM (OpenRouter primary, Ollama fallback if allowed)
-  → Logging + Response
+  → LLM (Groq primary, OpenRouter secondary, Ollama local fallback)
+  → Logging (BackgroundTask — non-blocking)
+  → Response
 
 Endpoints:
   POST /check_prompt
@@ -25,14 +26,21 @@ Endpoints:
   GET  /llm_status
   GET  /logs
   GET  /health
+
+Production notes:
+  - Rate limiter reads X-Forwarded-For to handle reverse-proxy deployments.
+  - ML models loaded + warm-up inference run at startup (no first-request lag).
+  - DB logging is dispatched as a BackgroundTask (fire-and-forget).
+  - ML CPU inference is off-loaded to a thread pool via asyncio.to_thread.
 """
 
 import time
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
@@ -52,6 +60,25 @@ from database            import (
 )
 
 # ---------------------------------------------------------------------------
+# Lifespan — model warm-up at startup
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Warm up ML models at startup so the first user request has no lag."""
+    print("[startup] Warming up ML models…")
+    detector = get_detector()
+    if detector.svm.loaded or detector.transformer.loaded:
+        # Run a dummy prediction to force JIT compilation / cache population
+        await asyncio.to_thread(detector.predict, "warm up inference")
+        print("[startup] ML warm-up complete.")
+    else:
+        print("[startup] No ML models loaded — run train_model.py first.")
+    yield
+    print("[shutdown] LLM Firewall shutting down.")
+
+
+# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
@@ -62,6 +89,7 @@ app = FastAPI(
         "Hybrid ML + Rule-based + Encoding + Session Tracking"
     ),
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -81,7 +109,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.ip_data: dict[str, list[float]] = {}
 
     async def dispatch(self, request: Request, call_next):
-        client_ip = request.client.host if request.client else "unknown"
+        # Respect X-Forwarded-For so real client IPs are tracked when behind
+        # a reverse proxy (Nginx, AWS ALB, Cloudflare, Docker bridge, etc.)
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "unknown"
         current_time = time.time()
 
         self.ip_data[client_ip] = [
@@ -172,9 +206,9 @@ async def _run_pipeline(
     nested_score    = nested_result.nested_score
     nested_category = nested_result.attack_category
 
-    # ── Step 6: ML hybrid detection ─────────────────────────────────────────
+    # ── Step 6: ML hybrid detection (non-blocking thread pool) ──────────────
     detector  = get_detector()
-    ml_result = detector.predict(cleaned)
+    ml_result = await asyncio.to_thread(detector.predict, cleaned)
 
     # ── Step 7: Session tracker ─────────────────────────────────────────────
     tracker      = get_session_tracker()
@@ -227,56 +261,59 @@ async def _run_pipeline(
 
     processing_time_ms = round((time.perf_counter() - t_start) * 1000, 1)
 
-    # ── Step 10: Log to DB ──────────────────────────────────────────────────
-    if not skip_log:
-        log_prompt(
-            prompt                = raw_prompt,
-            risk_score            = risk["risk_score"],
-            risk_level            = risk_level,
-            decision              = decision,
-            reason                = risk["reason"],
-            rule_score            = risk["details"]["rule_score"],
-            svm_score             = ml_result["svm_score"],
-            transformer_score     = ml_result["transformer_score"],
-            combined_score        = ml_result["combined_score"],
-            confidence            = confidence,
-            pattern_count         = risk["details"]["pattern_count"],
-            triggered_rules       = risk["triggered_rules"],
-            llm_provider          = provider or "",
-            llm_response          = llm_response or "",
-            llm_called            = llm_called,
-            response_time_ms      = llm_response_time_ms,
-            # v2.0 fields
-            session_id            = session_id or "",
-            normalized_prompt     = normalized_text,
-            attack_category       = risk["attack_category"],
-            encoding_anomaly_score = encoding_anomaly,
-            triggered_layers      = risk["triggered_layers"],
-            nested_score          = nested_score,
-        )
+    # ── Step 10: Log to DB (captured in closure for BackgroundTask) ──────────
+    # NOTE: We capture all values now (before the coroutine returns) so the
+    # BackgroundTask can safely access them after the response is sent.
+    _log_kwargs = dict(
+        prompt                = raw_prompt,
+        risk_score            = risk["risk_score"],
+        risk_level            = risk_level,
+        decision              = decision,
+        reason                = risk["reason"],
+        rule_score            = risk["details"]["rule_score"],
+        svm_score             = ml_result["svm_score"],
+        transformer_score     = ml_result["transformer_score"],
+        combined_score        = ml_result["combined_score"],
+        confidence            = confidence,
+        pattern_count         = risk["details"]["pattern_count"],
+        triggered_rules       = risk["triggered_rules"],
+        llm_provider          = provider or "",
+        llm_response          = llm_response or "",
+        llm_called            = llm_called,
+        response_time_ms      = llm_response_time_ms,
+        session_id            = session_id or "",
+        normalized_prompt     = normalized_text,
+        attack_category       = risk["attack_category"],
+        encoding_anomaly_score = encoding_anomaly,
+        triggered_layers      = risk["triggered_layers"],
+        nested_score          = nested_score,
+    )
 
-    return {
-        "status":             decision,
-        "risk_level":         risk_level,
-        "confidence":         confidence,
-        "svm_score":          ml_result["svm_score"],
-        "transformer_score":  ml_result["transformer_score"],
-        "combined_score":     risk["risk_score"],
-        "encoding_anomaly":   encoding_anomaly,
-        "nested_score":       nested_score,
-        "session_boost":      session_boost,
-        "triggered_rules":    risk["triggered_rules"],
-        "triggered_layers":   risk["triggered_layers"],
-        "attack_category":    risk["attack_category"],
-        "llm_response":       llm_response,
-        "llm_called":         llm_called,
-        "provider":           provider,
-        "processing_time_ms": processing_time_ms,
-        "warning":  "Prompt flagged as suspicious — sanitized before forwarding." if decision == "allowed_with_warning" else None,
-        "message":  "Prompt blocked by firewall — malicious injection detected."  if decision == "blocked"            else None,
-        "reason":   risk["reason"],
-        "firewall_active": True,
-    }
+    return (
+        {
+            "status":             decision,
+            "risk_level":         risk_level,
+            "confidence":         confidence,
+            "svm_score":          ml_result["svm_score"],
+            "transformer_score":  ml_result["transformer_score"],
+            "combined_score":     risk["risk_score"],
+            "encoding_anomaly":   encoding_anomaly,
+            "nested_score":       nested_score,
+            "session_boost":      session_boost,
+            "triggered_rules":    risk["triggered_rules"],
+            "triggered_layers":   risk["triggered_layers"],
+            "attack_category":    risk["attack_category"],
+            "llm_response":       llm_response,
+            "llm_called":         llm_called,
+            "provider":           provider,
+            "processing_time_ms": processing_time_ms,
+            "warning":  "Prompt flagged as suspicious — sanitized before forwarding." if decision == "allowed_with_warning" else None,
+            "message":  "Prompt blocked by firewall — malicious injection detected."  if decision == "blocked"            else None,
+            "reason":   risk["reason"],
+            "firewall_active": True,
+        },
+        _log_kwargs if not skip_log else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -302,18 +339,21 @@ async def root():
 
 
 @app.post("/check_prompt")
-async def check_prompt(request: PromptRequest):
+async def check_prompt(request: PromptRequest, background_tasks: BackgroundTasks):
     """Full v2.0 firewall pipeline with encoding normalization, nested detection, and session tracking."""
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
     sid = request.session_id or str(uuid.uuid4())
-    return await _run_pipeline(
+    result, log_kwargs = await _run_pipeline(
         request.prompt,
         firewall_enabled = request.firewall_enabled,
         skip_llm         = request.skip_llm,
         session_id       = sid,
     )
+    if log_kwargs is not None:
+        background_tasks.add_task(log_prompt, **log_kwargs)
+    return result
 
 
 @app.post("/demo_attack")
@@ -322,7 +362,8 @@ async def demo_attack(request: DemoAttackRequest):
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    without_fw, with_fw = await asyncio.gather(
+    # skip_log=True → _run_pipeline returns (result, None) for both paths
+    (without_fw, _), (with_fw, _) = await asyncio.gather(
         _run_pipeline(request.prompt, firewall_enabled=False, skip_log=True),
         _run_pipeline(request.prompt, firewall_enabled=True,  skip_log=True),
     )

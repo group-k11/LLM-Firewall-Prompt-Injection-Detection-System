@@ -20,7 +20,10 @@ services:
       - LLM_TIMEOUT=${LLM_TIMEOUT:-10}
     restart: unless-stopped
     volumes:
-      - backend_db:/app/backend
+      # IMPORTANT: mount ONLY the SQLite database file, not the whole backend
+      # directory. Mounting the full directory would cause the named volume to
+      # shadow any code updates you deploy via a rebuilt image.
+      - backend_data:/app/backend/data
 
   dashboard:
     build:
@@ -35,4 +38,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  backend_db:
+  backend_data:

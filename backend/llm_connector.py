@@ -229,6 +229,79 @@ async def call_llm(prompt: str, system_prompt: str = SYSTEM_PROMPT) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Streaming call — Groq SSE (yields text tokens)
+# ---------------------------------------------------------------------------
+
+async def call_llm_stream(prompt: str, system_prompt: str = SYSTEM_PROMPT):
+    """
+    Async generator that streams response tokens from Groq.
+
+    Yields:
+        str — individual text chunks as they arrive from the API.
+
+    Falls back to a single non-streamed response from the full fallback
+    chain (call_llm) if Groq streaming is unavailable or fails.
+
+    Usage (FastAPI StreamingResponse):
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(call_llm_stream(prompt), media_type="text/plain")
+    """
+    if not _groq.is_available():
+        # No Groq key — fall back to full non-streaming chain
+        result = await call_llm(prompt, system_prompt)
+        if result.get("success"):
+            yield result["response"] or ""
+        return
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024,
+        "stream": True,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+            async with client.stream("POST", _groq.BASE_URL, json=payload, headers=headers) as resp:
+                if resp.status_code != 200:
+                    # Streaming failed — fall back to non-streaming call
+                    result = await call_llm(prompt, system_prompt)
+                    if result.get("success"):
+                        yield result["response"] or ""
+                    return
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[len("data: "):]
+                    if data.strip() == "[DONE]":
+                        break
+                    try:
+                        import json as _json
+                        chunk = _json.loads(data)
+                        delta = chunk["choices"][0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except Exception:
+                        continue
+    except Exception as e:
+        print(f"[!] Groq streaming error: {e} — falling back to non-streaming")
+        result = await call_llm(prompt, system_prompt)
+        if result.get("success"):
+            yield result["response"] or ""
+
+
+
+# ---------------------------------------------------------------------------
 # Status check — ping all three providers
 # ---------------------------------------------------------------------------
 

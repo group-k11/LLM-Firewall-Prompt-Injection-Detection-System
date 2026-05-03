@@ -1,7 +1,11 @@
 """
 SQLite Database Manager — LLM Firewall v2.0
 
-Schema upgrades:
+Schema:
+  prompt_logs   — per-request telemetry
+  sessions      — SQLite-backed session state (multi-worker safe)
+
+Schema upgrades (prompt_logs):
   - session_id TEXT
   - normalized_prompt TEXT
   - attack_category TEXT
@@ -10,8 +14,11 @@ Schema upgrades:
   - nested_score REAL
 
 New query functions:
-  - get_attack_trends() — attack counts by category + time bucketed
-  - get_session_logs(session_id) — all logs for a session
+  - get_attack_trends()       — attack counts by category + time bucketed
+  - get_session_logs()        — all logs for a session
+  - upsert_session_state()    — persist session tracker state
+  - load_session_state()      — reload session state on startup
+  - cleanup_expired_sessions()— purge stale sessions
 """
 
 import sqlite3
@@ -20,7 +27,12 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "firewall.db")
+# Store the DB in a dedicated data/ subdirectory.
+# This matches the Docker volume mount: backend_data:/app/backend/data
+# so that only the database is persisted, not the source code.
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+os.makedirs(_DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(_DATA_DIR, "firewall.db")
 
 
 def get_connection() -> sqlite3.Connection:
@@ -34,7 +46,7 @@ def init_db() -> None:
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Base table (idempotent)
+    # Base prompt_logs table (idempotent)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS prompt_logs (
             id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +102,20 @@ def init_db() -> None:
     for col_name, col_def in new_cols:
         if col_name not in existing_cols:
             cursor.execute(f"ALTER TABLE prompt_logs ADD COLUMN {col_name} {col_def}")
+
+    # Sessions table (SQLite-backed session tracker state)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            session_id           TEXT PRIMARY KEY,
+            created_at           REAL NOT NULL,
+            last_seen            REAL NOT NULL,
+            total_prompts        INTEGER DEFAULT 0,
+            total_blocked        INTEGER DEFAULT 0,
+            total_suspicious     INTEGER DEFAULT 0,
+            cumulative_suspicion REAL DEFAULT 0,
+            history_json         TEXT DEFAULT '[]'
+        )
+    """)
 
     # Index on session_id for fast session lookups
     cursor.execute("""
@@ -159,7 +185,10 @@ def log_prompt(
         prompt,
         datetime.now(timezone.utc).isoformat(),
         risk_score, risk_level, decision, reason,
-        rule_score, combined_score, pattern_count,
+        # BUG FIX: ml_score was incorrectly mapped to combined_score.
+        # ml_score is now correctly set to svm_score (the primary ML signal)
+        # while combined_score gets the actual hybrid combined score.
+        rule_score, svm_score, pattern_count,
         svm_score, transformer_score, combined_score, confidence,
         triggered_json,
         llm_provider, llm_response_truncated,
@@ -330,6 +359,84 @@ def get_session_logs(session_id: str) -> list[dict]:
                 d[json_col] = []
         result.append(d)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Session persistence (v2.0 — SQLite-backed for multi-worker safety)
+# ---------------------------------------------------------------------------
+
+def upsert_session_state(
+    session_id: str,
+    created_at: float,
+    last_seen: float,
+    total_prompts: int,
+    total_blocked: int,
+    total_suspicious: int,
+    cumulative_suspicion: float,
+    history_json: str,
+) -> None:
+    """Insert or update a session row in SQLite."""
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO sessions (
+            session_id, created_at, last_seen,
+            total_prompts, total_blocked, total_suspicious,
+            cumulative_suspicion, history_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET
+            last_seen            = excluded.last_seen,
+            total_prompts        = excluded.total_prompts,
+            total_blocked        = excluded.total_blocked,
+            total_suspicious     = excluded.total_suspicious,
+            cumulative_suspicion = excluded.cumulative_suspicion,
+            history_json         = excluded.history_json
+    """, (
+        session_id, created_at, last_seen,
+        total_prompts, total_blocked, total_suspicious,
+        cumulative_suspicion, history_json,
+    ))
+    conn.commit()
+    conn.close()
+
+
+def load_session_state(session_id: str) -> dict | None:
+    """Load a session row from SQLite. Returns None if not found."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM sessions WHERE session_id = ?", (session_id,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def load_all_active_sessions(expiry_seconds: int = 1800) -> list[dict]:
+    """Load all sessions whose last_seen is within the expiry window."""
+    import time as _time
+    cutoff = _time.time() - expiry_seconds
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM sessions WHERE last_seen >= ?", (cutoff,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def cleanup_expired_sessions(expiry_seconds: int = 1800) -> int:
+    """Delete sessions older than expiry_seconds. Returns number deleted."""
+    import time as _time
+    cutoff = _time.time() - expiry_seconds
+    conn = get_connection()
+    cursor = conn.execute(
+        "DELETE FROM sessions WHERE last_seen < ?", (cutoff,)
+    )
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    if deleted:
+        print(f"[DB] Cleaned up {deleted} expired session(s)")
+    return deleted
 
 
 # ---------------------------------------------------------------------------

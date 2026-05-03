@@ -8,7 +8,8 @@ Features:
   - Cumulative suspicion score that escalates with repeated probing
   - Detects: slow escalation, reconnaissance → attack pattern, repeated boundary testing
   - Auto-expires sessions after SESSION_EXPIRY_MINUTES of inactivity
-  - Thread-safe in-process storage (suitable for single-worker uvicorn)
+  - SQLite-backed persistence: safe for multi-worker uvicorn deployments and
+    server restarts (in-memory cache kept for speed; SQLite is source of truth)
 
 Escalation rules:
   - 2 suspicious prompts in last 5 → +0.10 boost to current risk
@@ -17,11 +18,19 @@ Escalation rules:
   - Cumulative session score carried forward and decays slowly
 """
 
+import json
 import time
 import threading
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Optional
+
+from database import (
+    upsert_session_state,
+    load_session_state,
+    load_all_active_sessions,
+    cleanup_expired_sessions,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +72,56 @@ class Session:
     def is_expired(self) -> bool:
         return (time.time() - self.last_seen) > SESSION_EXPIRY_SECONDS
 
+    def to_db_dict(self) -> dict:
+        """Serialize to database-compatible format."""
+        history_list = [
+            {
+                "prompt_preview": r.prompt_preview,
+                "risk_level": r.risk_level,
+                "risk_score": round(r.risk_score, 4),
+                "decision": r.decision,
+                "timestamp": r.timestamp,
+            }
+            for r in self.history
+        ]
+        return {
+            "session_id": self.session_id,
+            "created_at": self.created_at,
+            "last_seen": self.last_seen,
+            "total_prompts": self.total_prompts,
+            "total_blocked": self.total_blocked,
+            "total_suspicious": self.total_suspicious,
+            "cumulative_suspicion": round(self.cumulative_suspicion, 4),
+            "history_json": json.dumps(history_list),
+        }
+
+    @classmethod
+    def from_db_row(cls, row: dict) -> "Session":
+        """Reconstruct a Session from a SQLite row."""
+        session = cls(
+            session_id=row["session_id"],
+            created_at=row["created_at"],
+            last_seen=row["last_seen"],
+            total_prompts=row["total_prompts"],
+            total_blocked=row["total_blocked"],
+            total_suspicious=row["total_suspicious"],
+            cumulative_suspicion=row["cumulative_suspicion"],
+        )
+        # Restore history ring buffer
+        try:
+            history_list = json.loads(row.get("history_json") or "[]")
+            for h in history_list[-SESSION_WINDOW_SIZE:]:
+                session.history.append(PromptRecord(
+                    prompt_preview=h["prompt_preview"],
+                    risk_level=h["risk_level"],
+                    risk_score=h["risk_score"],
+                    decision=h["decision"],
+                    timestamp=h["timestamp"],
+                ))
+        except Exception:
+            pass
+        return session
+
 
 # ---------------------------------------------------------------------------
 # Session store
@@ -70,7 +129,11 @@ class Session:
 
 class SessionTracker:
     """
-    Thread-safe, in-memory session tracker.
+    Thread-safe, SQLite-backed session tracker.
+
+    In-memory cache is used for fast read/write; SQLite is written on every
+    track() call so that the state survives restarts and is visible across
+    multiple uvicorn workers (when using a shared SQLite file or a proper DB).
 
     Usage:
         tracker = get_session_tracker()
@@ -81,6 +144,20 @@ class SessionTracker:
         self._sessions: dict[str, Session] = {}
         self._lock = threading.Lock()
         self._call_count = 0
+        self._restore_from_db()
+
+    def _restore_from_db(self) -> None:
+        """Load all active sessions from SQLite into the in-memory cache."""
+        try:
+            rows = load_all_active_sessions(expiry_seconds=SESSION_EXPIRY_SECONDS)
+            for row in rows:
+                session = Session.from_db_row(row)
+                if not session.is_expired():
+                    self._sessions[session.session_id] = session
+            if rows:
+                print(f"[SessionTracker] Restored {len(self._sessions)} active session(s) from DB.")
+        except Exception as e:
+            print(f"[SessionTracker] Could not restore sessions from DB: {e}")
 
     # ------------------------------------------------------------------
     # Public API
@@ -132,12 +209,29 @@ class SessionTracker:
                 session.cumulative_suspicion * 0.85 + risk_score * 0.15
             )
 
+            # Persist to SQLite (for multi-worker / restart resilience)
+            try:
+                db_data = session.to_db_dict()
+                upsert_session_state(**db_data)
+            except Exception as e:
+                print(f"[SessionTracker] DB persist failed for {session_id}: {e}")
+
             return boost
 
     def get_session(self, session_id: str) -> Optional[dict]:
         """Return session info dict for the API, or None if not found."""
         with self._lock:
+            # Check in-memory first; fall back to DB
             session = self._sessions.get(session_id)
+            if session is None:
+                try:
+                    row = load_session_state(session_id)
+                    if row:
+                        session = Session.from_db_row(row)
+                        if not session.is_expired():
+                            self._sessions[session_id] = session
+                except Exception:
+                    pass
             if not session or session.is_expired():
                 return None
             return self._serialize(session)
@@ -154,6 +248,16 @@ class SessionTracker:
 
     def _get_or_create(self, session_id: str) -> Session:
         if session_id not in self._sessions:
+            # Try loading from DB before creating a fresh one
+            try:
+                row = load_session_state(session_id)
+                if row:
+                    session = Session.from_db_row(row)
+                    if not session.is_expired():
+                        self._sessions[session_id] = session
+                        return session
+            except Exception:
+                pass
             self._sessions[session_id] = Session(session_id=session_id)
         return self._sessions[session_id]
 
@@ -201,7 +305,12 @@ class SessionTracker:
         for sid in expired:
             del self._sessions[sid]
         if expired:
-            print(f"[SessionTracker] Cleaned up {len(expired)} expired sessions")
+            print(f"[SessionTracker] Evicted {len(expired)} expired session(s) from cache")
+        # Also clean up the DB
+        try:
+            cleanup_expired_sessions(expiry_seconds=SESSION_EXPIRY_SECONDS)
+        except Exception as e:
+            print(f"[SessionTracker] DB cleanup error: {e}")
 
     def _serialize(self, session: Session) -> dict:
         return {
